@@ -1,9 +1,9 @@
 {-# LANGUAGE LambdaCase #-}
 module Main where
 
-import Data.Char 
-import Control.Applicative
-import Text.Parsec.Token (GenTokenParser(stringLiteral))
+import System.IO
+import Data.Char ( isDigit, isSpace ) 
+import Control.Applicative ( Alternative((<|>), empty, many) )
 import Distribution.Compat.CharParsing (CharParsing(string))
 
 data JsonValue = 
@@ -76,18 +76,40 @@ jsonNumber :: Parser JsonValue
 jsonNumber = f <$> notNull (spanP isDigit)
         where f ds = JsonNumber $ read ds 
 
-stringLit :: Parser String
-stringLit = spanP (/= '"')
+stringLiteral :: Parser String
+stringLiteral = charP '"' *> spanP (/= '"') <* charP '"'
 
 jsonString :: Parser JsonValue 
-jsonString = JsonString <$> (charP '"' *> stringLit <* charP '"')
+jsonString = JsonString <$> stringLiteral
 
 jsonArray :: Parser JsonValue
 jsonArray = JsonArray <$> (charP '[' *> ws *> elements <* ws <* charP ']')
         where elements = sepBy (ws *> charP ',' <* ws) jsonValue
 
+jsonObject :: Parser JsonValue
+jsonObject = JsonObject <$> (charP '{' 
+        *> ws *>  
+        sepBy (ws *> charP ',' <* ws) pair 
+        <* ws <* 
+        charP '}')
+        where 
+                pair = (\key _ value -> (key, value)) <$> stringLiteral <*> (ws *> charP ':' *> ws) <*> jsonValue
+
 jsonValue :: Parser JsonValue
-jsonValue = jsonNull <|> jsonBool <|> jsonNumber <|> jsonString <|> jsonArray
+jsonValue = jsonNull <|> jsonBool <|> jsonNumber <|> jsonString <|> jsonArray <|> jsonObject
+
+parseFile :: FilePath                 -- File path to parse
+          -> Parser a                 -- Parser to use
+          -> IO (Maybe a)
+
+parseFile fileName parser = do
+  input <- readFile fileName
+  return (snd <$> runParser parser input)
+  
 
 main :: IO ()
-main = undefined
+main = do
+    result <- parseFile "./example.json" jsonValue
+    case result of
+        Just value -> print value -- or handle the parsed value as needed
+        Nothing -> putStrLn "Parsing failed."
